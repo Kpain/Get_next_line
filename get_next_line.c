@@ -5,83 +5,138 @@
 /*                                                    +:+ +:+         +:+     */
 /*   By: kpain <marvin@42.fr>                       +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2015/12/29 15:13:34 by kpain             #+#    #+#             */
-/*   Updated: 2016/04/01 16:19:30 by kpain            ###   ########.fr       */
+/*   Created: 2016/01/23 16:54:36 by kpain             #+#    #+#             */
+/*   Updated: 2016/04/08 16:35:51 by kpain            ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "get_next_line.h"
 
-static int	file_checker(int const fd, char **line, char *str[256])
+static int	check_fd(t_file **file, int fd)
 {
-	char	*tmp;
-
-	if (str[fd])
+	if (*file)
 	{
-		if ((tmp = ft_strchr(str[fd], '\n')))
-		{
-			*line = ft_strcsub(str[fd], 0, '\n');
-			if (*(tmp + 1))
-				str[fd] = ft_strdup(++tmp);
-			else
-			{
-				free(str[fd]);
-				str[fd] = NULL;
-			}
+		while ((*file)->back)
+			*file = (*file)->back;
+		while ((*file)->fd != fd && (*file)->next)
+			*file = (*file)->next;
+		if ((*file)->fd == fd)
 			return (1);
-		}
-		else
-		{
-			*line = str[fd];
-			str[fd] = NULL;
-		}
-	}
-	return (0);
-}
-
-static int	file_reader(int const fd, char buff[], char **line, char *str[256])
-{
-	char	*tmp;
-	char	*tmp1;
-	char	*tmp2;
-
-	if ((tmp1 = ft_strchr(buff, '\n')))
-	{
-		tmp = ft_strcsub(buff, 0, '\n');
-		tmp2 = ft_strjoin(*line, tmp);
-		free(tmp);
-		free(*line);
-		*line = tmp2;
-		if (*(tmp1 + 1))
-			str[fd] = ft_strdup(++tmp1);
-		return (1);
+		if (!((*file)->next = (t_file*)malloc(sizeof(t_file))))
+			return (0);
+		(*file)->next->back = *file;
+		*file = (*file)->next;
 	}
 	else
 	{
-		tmp1 = ft_strjoin(*line, buff);
-		if (*line)
-			free(*line);
-		*line = tmp1;
+		if (!(*file = (t_file*)malloc(sizeof(t_file))))
+			return (0);
+		(*file)->back = NULL;
 	}
+	(*file)->next = NULL;
+	(*file)->fd = fd;
+	(*file)->str = NULL;
+	return (1);
+}
+
+static int	get_prev_read(t_file *file, char **line)
+{
+	char	*tmp;
+	char	*tmp2;
+
+	if (!file->str)
+		return (0);
+	if ((tmp2 = ft_strchr(file->str, '\n')))
+	{
+		*line = ft_strsub(file->str, 0, (int)(tmp2 - file->str));
+		if (ft_strlen(++tmp2))
+			tmp = ft_strdup(tmp2);
+		else
+			tmp = NULL;
+		free(file->str);
+		file->str = tmp;
+	}
+	else if (ft_strlen(file->str))
+	{
+		*line = file->str;
+		file->str = NULL;
+	}
+	return (tmp2 ? 1 : 0);
+}
+
+static int	read_line(char *buf, t_file *file, char **line)
+{
+	char	*tmp;
+	char	*tmp2;
+	char	*tmp3;
+
+	if ((tmp2 = ft_strchr(buf, '\n')))
+	{
+		tmp3 = ft_strsub(buf, 0, (int)(tmp2 - buf));
+		tmp = ft_strjoin(*line, tmp3);
+		free(tmp3);
+		if (ft_strlen(++tmp2))
+			file->str = ft_strdup(tmp2);
+	}
+	else
+		tmp = ft_strjoin(*line, buf);
+	if (*line)
+		free(*line);
+	*line = tmp;
+	if (tmp2)
+		return (1);
 	return (0);
+}
+
+static void	del_file(t_file **file)
+{
+	t_file	*tmp;
+
+	tmp = *file;
+	if (tmp->str)
+		free(tmp->str);
+	if (!(tmp->next) && !(tmp->back))
+		tmp = NULL;
+	else
+	{
+		if (tmp->back)
+		{
+			tmp->back->next = (tmp->next ? tmp->next : NULL);
+			tmp = tmp->back;
+		}
+		if (tmp->next)
+		{
+			tmp->next->back = (tmp->back ? tmp->back : NULL);
+			if (tmp == *file)
+				tmp = tmp->next;
+		}
+	}
+	free(*file);
+	*file = tmp;
 }
 
 int			get_next_line(int const fd, char **line)
 {
+	static t_file	*file = NULL;
 	int				ret;
-	static char		*str[256] = {NULL};
-	char			buff[BUFF_SIZE + 1];
+	char			*buf;
 
-	if (fd < 0 || line == NULL || BUFF_SIZE <= 0)
+	if (!line || fd < 0
+		|| !(buf = (char*)malloc(sizeof(char) * (BUFF_SIZE + 1))))
 		return (-1);
 	*line = NULL;
-	if (file_checker(fd, line, str))
+	if (!check_fd(&file, fd))
+		return (-1);
+	if (get_prev_read(file, line))
 		return (1);
-	while ((ret = read(fd, buff, BUFF_SIZE)) > 0)
+	while ((ret = read(fd, buf, BUFF_SIZE)) > 0)
 	{
-		buff[ret] = '\0';
-		if (file_reader(fd, buff, line, str))
-			return (1);
+		buf[ret] = '\0';
+		if (read_line(buf, file, line))
+			break ;
 	}
-	return (*line ? 1 : ret);
+	if (ret == 0)
+		del_file(&file);
+	free(buf);
+	return (ret > 0 || *line ? 1 : ret);
 }
